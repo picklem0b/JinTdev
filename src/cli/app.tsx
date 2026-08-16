@@ -1,267 +1,518 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Box, Text, useInput, useApp } from 'ink'
-import TextInput from 'ink-text-input'
-import { Orchestrator } from '../engine/orchestrator.js'
-import { defaultTheme } from './themes.js'
-import type { AgentMessage, AgentRole, AgentStatus, AppState } from '../types/index.js'
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Box, Text, useInput, useApp } from 'ink';
+import TextInput from 'ink-text-input';
+import { Orchestrator } from '../engine/orchestrator.js';
+import { defaultTheme } from './themes.js';
+import type { AgentMessage, AgentRole, AgentStatus } from '../types/index.js';
 
-const ROLE_LABELS: Record<AgentRole, string> = {
-  leader: '[@leader]',
-  backend: '[@backend]',
-  frontend: '[@frontend]',
+const TABS = [
+	'feed',
+	'leader',
+	'backend',
+	'frontend',
+	'contract',
+	'diff'
+] as const;
+type Tab = (typeof TABS)[number];
+
+const t = defaultTheme;
+
+const LOGO = [
+	'    ╔═══════════╗',
+	'    ║  >_  ~~~  ║',
+	'    ║   ·  · )  ║',
+	'    ║  ╔═════╗  ║',
+	'    ║  ║ AI  ║  ║',
+	'    ╚══╩═════╩══╝',
+	'    ░░░░░░░░░░░░░',
+	'   ░░   AIDT    ░░',
+	'    ░░░░░░░░░░░░░'
+];
+
+const ROLE_LABEL: Record<AgentRole, string> = {
+	leader: '[@leader]',
+	backend: '[@backend]',
+	frontend: '[@frontend]'
+};
+
+const ROLE_COLOR: Record<AgentRole | 'user' | 'system', string> = {
+	leader: t.leader,
+	backend: t.backend,
+	frontend: t.frontend,
+	user: t.user,
+	system: t.system
+};
+
+const STATUS_DOT: Record<AgentStatus, string> = {
+	idle: '○',
+	thinking: '◌',
+	responding: '●',
+	waiting: '◐',
+	done: '✓',
+	error: '✗'
+};
+
+const STATUS_COLOR: Record<AgentStatus, string> = {
+	idle: t.muted,
+	thinking: t.warning,
+	responding: t.success,
+	waiting: t.thinking,
+	done: t.success,
+	error: t.error
+};
+
+function Logo() {
+	return (
+		<Box flexDirection='column' alignItems='center' marginBottom={1}>
+			{LOGO.map((line, i) => (
+				<Text key={i} color={i < 6 ? t.leader : t.muted}>
+					{line}
+				</Text>
+			))}
+			<Text color={t.muted} dimColor italic>
+				{'  Use / for slash commands · @ for agents · Tab to switch  '}
+			</Text>
+		</Box>
+	);
 }
 
-const TABS = ['feed', 'leader', 'backend', 'frontend', 'contract', 'diff'] as const
-type Tab = typeof TABS[number]
-
-const t = defaultTheme
-
-function roleColor(role: AgentRole | 'user' | 'system'): string {
-  if (role === 'leader') return t.leader
-  if (role === 'backend') return t.backend
-  if (role === 'frontend') return t.frontend
-  if (role === 'user') return t.user
-  return t.system
-}
-
-function StatusDot({ status }: { status: AgentStatus }) {
-  const dots: Record<AgentStatus, string> = {
-    idle: '○',
-    thinking: '◌',
-    responding: '●',
-    waiting: '◐',
-    done: '✓',
-    error: '✗',
-  }
-  const colors: Record<AgentStatus, string> = {
-    idle: t.muted,
-    thinking: t.warning,
-    responding: t.success,
-    waiting: t.thinking,
-    done: t.success,
-    error: t.error,
-  }
-  return <Text color={colors[status]}>{dots[status]}</Text>
-}
-
-function Header({ activeTab, setTab, agentStatuses }: {
-  activeTab: Tab
-  setTab: (t: Tab) => void
-  agentStatuses: Record<AgentRole, AgentStatus>
+function TabBar({
+	activeTab,
+	agentStatuses
+}: {
+	activeTab: Tab;
+	agentStatuses: Record<AgentRole, AgentStatus>;
 }) {
-  return (
-    <Box flexDirection="column" borderStyle="single" borderColor={t.border} paddingX={1}>
-      <Box gap={1} marginBottom={0}>
-        <Text color={t.leader} bold italic>AIDT</Text>
-        <Text color={t.muted}>─</Text>
-        {TABS.map((tab) => (
-          <Box key={tab} marginRight={1}>
-            <Text
-              color={activeTab === tab ? t.user : t.muted}
-              bold={activeTab === tab}
-              underline={activeTab === tab}
-            >
-              {tab}
-            </Text>
-          </Box>
-        ))}
-      </Box>
-      <Box gap={2}>
-        {(['leader', 'backend', 'frontend'] as AgentRole[]).map(role => (
-          <Box key={role} gap={1}>
-            <StatusDot status={agentStatuses[role]} />
-            <Text color={roleColor(role)} dimColor={agentStatuses[role] === 'idle'}>
-              {role}
-            </Text>
-          </Box>
-        ))}
-      </Box>
-    </Box>
-  )
+	return (
+		<Box
+			flexDirection='column'
+			borderStyle='round'
+			borderColor={t.border}
+			paddingX={1}
+			marginBottom={0}
+		>
+			<Box gap={2}>
+				{TABS.map(tab => {
+					const active = tab === activeTab;
+					return (
+						<Box key={tab}>
+							{active ? (
+								<Text
+									color={t.leader}
+									bold
+									underline
+								>{` ${tab} `}</Text>
+							) : (
+								<Text color={t.muted}>{` ${tab} `}</Text>
+							)}
+						</Box>
+					);
+				})}
+			</Box>
+			<Box gap={3} marginTop={0}>
+				{(['leader', 'backend', 'frontend'] as AgentRole[]).map(
+					role => (
+						<Box key={role} gap={1}>
+							<Text color={STATUS_COLOR[agentStatuses[role]]}>
+								{STATUS_DOT[agentStatuses[role]]}
+							</Text>
+							<Text color={ROLE_COLOR[role]}>{role}</Text>
+							<Text color={t.muted} dimColor>
+								{agentStatuses[role]}
+							</Text>
+						</Box>
+					)
+				)}
+			</Box>
+		</Box>
+	);
 }
 
-function MessageFeed({ messages, filterRole }: {
-  messages: AgentMessage[]
-  filterRole?: AgentRole
+function ContextBar({
+	repoPath,
+	phase,
+	tokenCount
+}: {
+	repoPath?: string;
+	phase: string;
+	tokenCount: number;
 }) {
-  const filtered = filterRole
-    ? messages.filter(m => m.from === filterRole || m.to === filterRole)
-    : messages
-
-  return (
-    <Box flexDirection="column" flexGrow={1} paddingX={1} overflowY="hidden">
-      {filtered.slice(-30).map((msg) => (
-        <Box key={msg.id} flexDirection="column" marginBottom={1}>
-          <Box gap={1}>
-            <Text color={roleColor(msg.from as AgentRole)}>
-              {msg.from === 'user' ? '[you]' : ROLE_LABELS[msg.from as AgentRole] ?? `[${msg.from}]`}
-            </Text>
-            <Text color={t.muted} dimColor>
-              {new Date(msg.timestamp).toLocaleTimeString()}
-            </Text>
-            <Text color={t.muted} dimColor>
-              {msg.type}
-            </Text>
-          </Box>
-          <Box paddingLeft={2}>
-            <Text color={msg.from === 'user' ? t.user : roleColor(msg.from as AgentRole)} wrap="wrap">
-              {msg.content}
-            </Text>
-          </Box>
-        </Box>
-      ))}
-    </Box>
-  )
+	return (
+		<Box
+			borderStyle='single'
+			borderColor={t.border}
+			paddingX={1}
+			justifyContent='space-between'
+		>
+			<Box gap={1}>
+				<Text color={t.muted}>{'📁'}</Text>
+				<Text color={t.path}>{repoPath ?? 'no project'}</Text>
+			</Box>
+			<Box gap={2}>
+				<Text color={t.muted}>
+					phase: <Text color={t.warning}>{phase}</Text>
+				</Text>
+				<Text color={t.muted}>
+					tokens:{' '}
+					<Text color={t.cmdYellow}>
+						{tokenCount.toLocaleString()}
+					</Text>
+				</Text>
+				<Text color={t.muted}>
+					model: <Text color={t.leader}>nemotron-ultra</Text>
+				</Text>
+			</Box>
+		</Box>
+	);
 }
 
-function StreamingIndicator({ role, token }: { role: AgentRole | null, token: string }) {
-  if (!role || !token) return null
-  return (
-    <Box paddingX={1} paddingY={0}>
-      <Text color={roleColor(role)}>{ROLE_LABELS[role]} </Text>
-      <Text color={t.thinking} italic>{token}</Text>
-      <Text color={t.warning}> ▌</Text>
-    </Box>
-  )
+function UserMessage({ content, time }: { content: string; time: string }) {
+	const width = process.stdout.columns - 4;
+	const divider = '─'.repeat(Math.max(10, width));
+	return (
+		<Box flexDirection='column' marginBottom={1}>
+			<Text color={t.muted} dimColor>
+				{divider}
+			</Text>
+			<Box paddingX={1} gap={1}>
+				<Text color={t.user} wrap='wrap'>
+					{content}
+				</Text>
+				<Text color={t.muted} dimColor>
+					{time}
+				</Text>
+			</Box>
+			<Text color={t.muted} dimColor>
+				{divider}
+			</Text>
+		</Box>
+	);
 }
 
-function InputBar({ value, onChange, onSubmit, targetAgent }: {
-  value: string
-  onChange: (v: string) => void
-  onSubmit: (v: string) => void
-  targetAgent: AgentRole | 'all' | null
+function AgentMessageBlock({ msg }: { msg: AgentMessage }) {
+	const role = msg.from as AgentRole;
+	return (
+		<Box flexDirection='column' marginBottom={1} paddingLeft={1}>
+			<Box gap={1}>
+				<Text color={ROLE_COLOR[role]} bold>
+					{ROLE_LABEL[role] ?? `[${msg.from}]`}
+				</Text>
+				<Text color={t.muted} dimColor>
+					{new Date(msg.timestamp).toLocaleTimeString()}
+				</Text>
+				<Text color={t.muted} dimColor italic>
+					{msg.type}
+				</Text>
+			</Box>
+			<Box paddingLeft={2} paddingTop={0}>
+				<Text color={ROLE_COLOR[role]} wrap='wrap'>
+					{msg.content}
+				</Text>
+			</Box>
+		</Box>
+	);
+}
+
+function StreamingBlock({ role, buffer }: { role: AgentRole; buffer: string }) {
+	return (
+		<Box flexDirection='column' marginBottom={1} paddingLeft={1}>
+			<Box gap={1}>
+				<Text color={ROLE_COLOR[role]} bold>
+					{ROLE_LABEL[role]}
+				</Text>
+				<Text color={t.warning}>thinking</Text>
+				<Text color={t.warning}>▌</Text>
+			</Box>
+			<Box paddingLeft={2}>
+				<Text color={t.thinking} italic wrap='wrap'>
+					{buffer}
+				</Text>
+			</Box>
+		</Box>
+	);
+}
+
+function Feed({
+	messages,
+	filterRole,
+	streamingRole,
+	streamingBuffer,
+	showLogo
+}: {
+	messages: AgentMessage[];
+	filterRole?: AgentRole;
+	streamingRole: AgentRole | null;
+	streamingBuffer: string;
+	showLogo: boolean;
 }) {
-  const prefix = targetAgent ? `@${targetAgent} ` : '> '
-  return (
-    <Box borderStyle="single" borderColor={t.border} paddingX={1}>
-      <Text color={t.success} bold>{prefix}</Text>
-      <TextInput value={value} onChange={onChange} onSubmit={onSubmit} />
-    </Box>
-  )
+	const visible = filterRole
+		? messages.filter(m => m.from === filterRole || m.to === filterRole)
+		: messages;
+
+	return (
+		<Box
+			flexDirection='column'
+			flexGrow={1}
+			paddingX={1}
+			overflowY='hidden'
+		>
+			{showLogo && visible.length === 0 && <Logo />}
+			{visible.slice(-40).map(msg => {
+				if (msg.from === 'user') {
+					return (
+						<UserMessage
+							key={msg.id}
+							content={msg.content}
+							time={new Date(msg.timestamp).toLocaleTimeString()}
+						/>
+					);
+				}
+				return <AgentMessageBlock key={msg.id} msg={msg} />;
+			})}
+			{streamingRole && streamingBuffer && (
+				<StreamingBlock role={streamingRole} buffer={streamingBuffer} />
+			)}
+		</Box>
+	);
 }
 
-export default function App({ apiKey, repoPath }: { apiKey: string, repoPath?: string }) {
-  const { exit } = useApp()
-  const orchestratorRef = useRef(new Orchestrator())
-  const orc = orchestratorRef.current
+function InputBar({
+	value,
+	onChange,
+	onSubmit,
+	targetAgent,
+	busy
+}: {
+	value: string;
+	onChange: (v: string) => void;
+	onSubmit: (v: string) => void;
+	targetAgent: AgentRole | 'all' | null;
+	busy: boolean;
+}) {
+	const prefix = targetAgent ? `@${targetAgent} ` : '';
+	return (
+		<Box
+			flexDirection='column'
+			borderStyle='round'
+			borderColor={busy ? t.warning : t.border}
+		>
+			<Box paddingX={1} gap={1}>
+				<Text color={t.muted}>{'❯'}</Text>
+				{targetAgent && (
+					<Text color={ROLE_COLOR[targetAgent as AgentRole]}>
+						@{targetAgent}
+					</Text>
+				)}
+				<TextInput
+					value={value}
+					onChange={onChange}
+					onSubmit={onSubmit}
+					placeholder={
+						busy ? 'Team is working...' : 'What can I do for you?'
+					}
+				/>
+			</Box>
+		</Box>
+	);
+}
 
-  const [messages, setMessages] = useState<AgentMessage[]>([])
-  const [input, setInput] = useState('')
-  const [activeTab, setActiveTab] = useState<Tab>('feed')
-  const [targetAgent, setTargetAgent] = useState<AgentRole | 'all' | null>(null)
-  const [streamingRole, setStreamingRole] = useState<AgentRole | null>(null)
-  const [streamingToken, setStreamingToken] = useState('')
-  const [agentStatuses, setAgentStatuses] = useState<Record<AgentRole, AgentStatus>>({
-    leader: 'idle',
-    backend: 'idle',
-    frontend: 'idle',
-  })
+function HelpBar() {
+	return (
+		<Box paddingX={1} gap={2}>
+			<Text color={t.muted} dimColor>
+				Use <Text color={t.cmdGreen}>/</Text> for slash commands
+			</Text>
+			<Text color={t.muted} dimColor>
+				<Text color={t.flagShort}>@</Text> for agent mentions
+			</Text>
+			<Text color={t.muted} dimColor>
+				<Text color={t.cmdYellow}>Tab</Text> switch tabs
+			</Text>
+			<Text color={t.muted} dimColor>
+				<Text color={t.error}>^C</Text> exit
+			</Text>
+		</Box>
+	);
+}
 
-  useEffect(() => {
-    process.env.OPENROUTER_API_KEY = apiKey
+export default function App({
+	apiKey,
+	repoPath
+}: {
+	apiKey: string;
+	repoPath?: string;
+}) {
+	const { exit } = useApp();
+	const orcRef = useRef(new Orchestrator());
+	const orc = orcRef.current;
 
-    orc.on('message', (msg: AgentMessage) => {
-      setMessages(prev => [...prev, msg])
-      setStreamingToken('')
-      setStreamingRole(null)
-    })
+	const [messages, setMessages] = useState<AgentMessage[]>([]);
+	const [input, setInput] = useState('');
+	const [activeTab, setActiveTab] = useState<Tab>('feed');
+	const [targetAgent, setTargetAgent] = useState<AgentRole | 'all' | null>(
+		null
+	);
+	const [streamingRole, setStreamingRole] = useState<AgentRole | null>(null);
+	const [streamingBuffer, setStreamingBuffer] = useState('');
+	const [phase, setPhase] = useState('IDLE');
+	const [tokenCount, setTokenCount] = useState(0);
+	const [busy, setBusy] = useState(false);
+	const [agentStatuses, setAgentStatuses] = useState<
+		Record<AgentRole, AgentStatus>
+	>({
+		leader: 'idle',
+		backend: 'idle',
+		frontend: 'idle'
+	});
 
-    orc.on('token', (role: AgentRole, token: string) => {
-      setStreamingRole(role)
-      setStreamingToken(prev => prev + token)
-    })
+	useEffect(() => {
+		process.env.OPENROUTER_API_KEY = apiKey;
 
-    orc.on('status', (role: AgentRole, status: string) => {
-      setAgentStatuses(prev => ({ ...prev, [role]: status as AgentStatus }))
-    })
+		orc.on('message', (msg: AgentMessage) => {
+			setMessages(prev => [...prev, msg]);
+			setStreamingBuffer('');
+			setStreamingRole(null);
+			setTokenCount(prev => prev + msg.content.split(' ').length);
+		});
 
-    orc.on('phase', () => {})
+		orc.on('token', (role: AgentRole, token: string) => {
+			setStreamingRole(role);
+			setStreamingBuffer(prev => prev + token);
+		});
 
-    if (repoPath) {
-      orc.setRepoContext(`Project path: ${repoPath}`)
-    }
-  }, [])
+		orc.on('status', (role: AgentRole, status: string) => {
+			setAgentStatuses(prev => ({
+				...prev,
+				[role]: status as AgentStatus
+			}));
+			setBusy(
+				Object.values({ ...agentStatuses, [role]: status }).some(
+					s => s === 'thinking' || s === 'responding'
+				)
+			);
+		});
 
-  useInput((inputStr, key) => {
-    if (key.ctrl && inputStr === 'c') exit()
-    if (key.tab) {
-      const idx = TABS.indexOf(activeTab)
-      setActiveTab(TABS[(idx + 1) % TABS.length])
-    }
-  })
+		orc.on('phase', (p: string) => setPhase(p));
 
-  const handleSubmit = useCallback(async (value: string) => {
-    if (!value.trim()) return
-    setInput('')
+		if (repoPath) orc.setRepoContext(`Project path: ${repoPath}`);
+	}, []);
 
-    const atMatch = value.match(/^@(\w+)\s+(.*)/)
-    if (atMatch) {
-      const [, role, msg] = atMatch
-      const validRoles: AgentRole[] = ['leader', 'backend', 'frontend']
-      if (validRoles.includes(role as AgentRole)) {
-        setTargetAgent(role as AgentRole)
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          from: 'user',
-          to: role as AgentRole,
-          type: 'CHAT',
-          phase: 'RECEIVED',
-          content: msg,
-          timestamp: Date.now(),
-        }])
-        await orc.chat(msg, role as AgentRole)
-        setTargetAgent(null)
-        return
-      }
-    }
+	useInput((char, key) => {
+		if (key.ctrl && char === 'c') exit();
+		if (key.tab) {
+			const idx = TABS.indexOf(activeTab);
+			setActiveTab(TABS[(idx + 1) % TABS.length]);
+		}
+		if (key.escape) setTargetAgent(null);
+	});
 
-    if (value.startsWith('/task ')) {
-      const request = value.slice(6)
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        from: 'user',
-        to: 'all',
-        type: 'TASK_ASSIGNMENT',
-        phase: 'RECEIVED',
-        content: request,
-        timestamp: Date.now(),
-      }])
-      await orc.runTask(request)
-      return
-    }
+	const handleSubmit = useCallback(
+		async (value: string) => {
+			if (!value.trim() || busy) return;
+			setInput('');
 
-    setMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      from: 'user',
-      to: 'leader',
-      type: 'CHAT',
-      phase: 'RECEIVED',
-      content: value,
-      timestamp: Date.now(),
-    }])
-    await orc.chat(value)
-  }, [orc])
+			const atMatch = value.match(/^@(\w+)\s+(.+)/);
+			if (atMatch) {
+				const [, role, msg] = atMatch;
+				const valid: AgentRole[] = ['leader', 'backend', 'frontend'];
+				if (valid.includes(role as AgentRole)) {
+					const target = role as AgentRole;
+					setTargetAgent(target);
+					setMessages(prev => [
+						...prev,
+						{
+							id: Date.now().toString(),
+							from: 'user',
+							to: target,
+							type: 'CHAT',
+							phase: 'RECEIVED',
+							content: msg,
+							timestamp: Date.now()
+						}
+					]);
+					setBusy(true);
+					await orc.chat(msg, target);
+					setBusy(false);
+					setTargetAgent(null);
+					return;
+				}
+			}
 
-  const filterRole = activeTab !== 'feed' && activeTab !== 'contract' && activeTab !== 'diff'
-    ? activeTab as AgentRole
-    : undefined
+			if (value.startsWith('/task ')) {
+				const request = value.slice(6).trim();
+				setMessages(prev => [
+					...prev,
+					{
+						id: Date.now().toString(),
+						from: 'user',
+						to: 'all',
+						type: 'TASK_ASSIGNMENT',
+						phase: 'RECEIVED',
+						content: request,
+						timestamp: Date.now()
+					}
+				]);
+				setBusy(true);
+				await orc.runTask(request);
+				setBusy(false);
+				return;
+			}
 
-  return (
-    <Box flexDirection="column" height={process.stdout.rows}>
-      <Header activeTab={activeTab} setTab={setActiveTab} agentStatuses={agentStatuses} />
-      <MessageFeed messages={messages} filterRole={filterRole} />
-      <StreamingIndicator role={streamingRole} token={streamingToken} />
-      <InputBar
-        value={input}
-        onChange={setInput}
-        onSubmit={handleSubmit}
-        targetAgent={targetAgent}
-      />
-      <Box paddingX={1}>
-        <Text color={t.muted} dimColor>
-          Tab: switch tabs  @leader/@backend/@frontend: direct message  /task [request]: run team task  Ctrl+C: exit
-        </Text>
-      </Box>
-    </Box>
-  )
+			if (value.startsWith('/clear')) {
+				setMessages([]);
+				orc.clearAll();
+				setPhase('IDLE');
+				return;
+			}
+
+			setMessages(prev => [
+				...prev,
+				{
+					id: Date.now().toString(),
+					from: 'user',
+					to: 'leader',
+					type: 'CHAT',
+					phase: 'RECEIVED',
+					content: value,
+					timestamp: Date.now()
+				}
+			]);
+			setBusy(true);
+			await orc.chat(value);
+			setBusy(false);
+		},
+		[orc, busy, agentStatuses]
+	);
+
+	const filterRole = (['leader', 'backend', 'frontend'] as Tab[]).includes(
+		activeTab
+	)
+		? (activeTab as AgentRole)
+		: undefined;
+
+	return (
+		<Box flexDirection='column' height={process.stdout.rows}>
+			<TabBar activeTab={activeTab} agentStatuses={agentStatuses} />
+			<ContextBar
+				repoPath={repoPath}
+				phase={phase}
+				tokenCount={tokenCount}
+			/>
+			<Feed
+				messages={messages}
+				filterRole={filterRole}
+				streamingRole={streamingRole}
+				streamingBuffer={streamingBuffer}
+				showLogo={activeTab === 'feed'}
+			/>
+			<InputBar
+				value={input}
+				onChange={setInput}
+				onSubmit={handleSubmit}
+				targetAgent={targetAgent}
+				busy={busy}
+			/>
+			<HelpBar />
+		</Box>
+	);
 }
